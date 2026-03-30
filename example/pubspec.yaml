@@ -10,6 +10,8 @@ dependencies:
     sdk: flutter
   animove:
     path: ../
+  animated_to: ^0.8.1
+  hero_animation: ^1.1.4
 
 flutter:
   uses-material-design: true

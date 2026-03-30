@@ -3,6 +3,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+const double _kEpsilon = 0.0001;
+
 // --- Frame ---
 
 class RenderAnimoveFrame extends RenderProxyBox {
@@ -120,11 +122,8 @@ class _AnimoveSliverFrameRenderWidget extends SingleChildRenderObjectWidget {
 /// - [current]: current visual offset (translation component) from target
 /// - [target]: always 0.0 (translation decays to zero)
 /// - [velocity]: current velocity at interruption, or 0.0 for fresh start
-typedef SimulationFactory = Simulation Function(
-  double current,
-  double target,
-  double velocity,
-);
+typedef SimulationFactory =
+    Simulation Function(double current, double target, double velocity);
 
 /// Default spring simulation factory.
 Simulation defaultSimulationFactory(
@@ -145,9 +144,9 @@ class RenderAnimove extends RenderProxyBox {
     RenderBox? child,
     required Ticker ticker,
     SimulationFactory? simulationFactory,
-  })  : _ticker = ticker,
-        _simulationFactory = simulationFactory ?? defaultSimulationFactory,
-        super(child);
+  }) : _ticker = ticker,
+       _simulationFactory = simulationFactory ?? defaultSimulationFactory,
+       super(child);
 
   final Ticker _ticker;
   SimulationFactory _simulationFactory;
@@ -305,7 +304,8 @@ class RenderAnimove extends RenderProxyBox {
       _startAnimation(translation.dx, translation.dy, 0.0, 0.0);
       _pendingReparent = false;
       _savedGlobalPos = null;
-    } else if (_cachedRelativePos != null && _cachedRelativePos != relativePos) {
+    } else if (_cachedRelativePos != null &&
+        (_cachedRelativePos! - relativePos).distance > _kEpsilon) {
       // Position changed — start or interrupt animation
       final delta = _cachedRelativePos! - relativePos;
       if (_isAnimating) {
@@ -387,10 +387,7 @@ class _AnimoveRenderWidget extends SingleChildRenderObjectWidget {
 
   @override
   RenderAnimove createRenderObject(BuildContext context) {
-    return RenderAnimove(
-      ticker: ticker,
-      simulationFactory: simulationFactory,
-    );
+    return RenderAnimove(ticker: ticker, simulationFactory: simulationFactory);
   }
 
   @override

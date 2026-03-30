@@ -1,0 +1,15 @@
+name: animove_example
+description: Demo app for the animove package
+publish_to: none
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  animove:
+    path: ../
+
+flutter:
+  uses-material-design: true

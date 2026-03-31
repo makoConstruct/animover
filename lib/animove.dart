@@ -10,9 +10,71 @@ const double _kEpsilon = 0.0001;
 class RenderAnimoveFrame extends RenderProxyBox {
   RenderAnimoveFrame({RenderBox? child}) : super(child);
 
-  /// Returns [child]'s position in this frame's coordinate space.
+  final Set<RenderAnimove> _animatingDescendants = {};
+
+  void _registerAnimating(RenderAnimove animove) {
+    _animatingDescendants.add(animove);
+  }
+
+  void _unregisterAnimating(RenderAnimove animove) {
+    _animatingDescendants.remove(animove);
+  }
+
+  /// Returns [child]'s position in this frame's content coordinate space.
   Offset getRelativeOffset(RenderBox child) {
     return child.localToGlobal(Offset.zero, ancestor: this);
+  }
+
+  /// Converts a global position to this frame's content coordinate space.
+  /// Must use the same coordinate space as [getRelativeOffset].
+  Offset globalToRelative(Offset globalPos) {
+    return MatrixUtils.transformPoint(
+      getTransformTo(null)..invert(),
+      globalPos,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animatingDescendants.clear();
+    super.dispose();
+  }
+
+  /// Paints children with z-ordering support for animating descendants.
+  /// Extracted so [RenderAnimove] can reuse this after applying its own
+  /// animation translation.
+  void paintFrame(PaintingContext context, Offset offset) {
+    if (child == null) return;
+
+    if (_animatingDescendants.isEmpty) {
+      // No animations — paint normally, no extra layer
+      context.paintChild(child!, offset);
+      return;
+    }
+
+    // Push a fresh container layer so we can reparent animating layers on top.
+    final containerLayer = OffsetLayer(offset: offset);
+    context.pushLayer(containerLayer, (ctx, _) {
+      ctx.paintChild(child!, Offset.zero);
+
+      for (final animove in _animatingDescendants) {
+        final layer = animove._offsetLayer;
+        if (layer != null) {
+          layer.remove();
+          // Reparent animations use root-frame-relative position;
+          // normal animations use nearest-frame-relative position.
+          layer.offset = animove._isReparentAnim
+              ? (animove._registeredRelativePos ?? Offset.zero)
+              : (animove._cachedRelativePos ?? Offset.zero);
+          containerLayer.append(layer);
+        }
+      }
+    }, Offset.zero);
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    paintFrame(context, offset);
   }
 }
 
@@ -35,13 +97,21 @@ class RenderAnimoveSliverFrame extends RenderAnimoveFrame {
     markNeedsPaint();
   }
 
-  @override
-  Offset getRelativeOffset(RenderBox child) {
-    final base = super.getRelativeOffset(child);
+  Offset _addScrollCompensation(Offset base) {
     return switch (_scrollAxis) {
       Axis.vertical => base + Offset(0, _scrollOffset),
       Axis.horizontal => base + Offset(_scrollOffset, 0),
     };
+  }
+
+  @override
+  Offset getRelativeOffset(RenderBox child) {
+    return _addScrollCompensation(super.getRelativeOffset(child));
+  }
+
+  @override
+  Offset globalToRelative(Offset globalPos) {
+    return _addScrollCompensation(super.globalToRelative(globalPos));
   }
 }
 
@@ -139,14 +209,14 @@ Simulation defaultSimulationFactory(
   );
 }
 
-class RenderAnimove extends RenderProxyBox {
+class RenderAnimove extends RenderAnimoveFrame {
   RenderAnimove({
     RenderBox? child,
     required Ticker ticker,
     SimulationFactory? simulationFactory,
   }) : _ticker = ticker,
        _simulationFactory = simulationFactory ?? defaultSimulationFactory,
-       super(child);
+       super(child: child);
 
   final Ticker _ticker;
   SimulationFactory _simulationFactory;
@@ -166,6 +236,18 @@ class RenderAnimove extends RenderProxyBox {
       ancestor = ancestor.parent;
     }
     return null;
+  }
+
+  /// Finds the outermost ancestor frame. Used for reparent animations so
+  /// the overlay can paint on top of everything between origin and destination.
+  RenderAnimoveFrame? _findRootFrame() {
+    RenderAnimoveFrame? result;
+    RenderObject? ancestor = parent;
+    while (ancestor != null) {
+      if (ancestor is RenderAnimoveFrame) result = ancestor;
+      ancestor = ancestor.parent;
+    }
+    return result;
   }
 
   // --- Animation state ---
@@ -189,10 +271,28 @@ class RenderAnimove extends RenderProxyBox {
   Offset? _cachedRelativePos;
   Offset? _lastGlobalPos;
 
+  // --- Layer for z-ordering ---
+  // LayerHandle keeps refcount > 0 so the layer isn't disposed when
+  // the frame reparents it (remove() drops the parent's handle).
+
+  final LayerHandle<OffsetLayer> _layerHandle = LayerHandle<OffsetLayer>();
+  OffsetLayer? get _offsetLayer => _layerHandle.layer;
+
   // --- Reparenting ---
 
   Offset? _savedGlobalPos;
+  double _savedVelX = 0.0;
+  double _savedVelY = 0.0;
   bool _pendingReparent = false;
+
+  // During reparent animations, z-ordering registers with the root frame
+  // (not the nearest frame) so the overlay covers everything between
+  // origin and destination. _registeredFrame tracks which frame we're
+  // registered with; _registeredRelativePos is our position in that
+  // frame's coordinate space (for layer placement).
+  bool _isReparentAnim = false;
+  RenderAnimoveFrame? _registeredFrame;
+  Offset? _registeredRelativePos;
 
   // --- Lifecycle ---
 
@@ -207,7 +307,18 @@ class RenderAnimove extends RenderProxyBox {
 
   @override
   void detach() {
-    _savedGlobalPos = _lastGlobalPos;
+    if (_isAnimating && _lastGlobalPos != null) {
+      // Save visual position (layout + animation translation) and velocity
+      // so reparent animation can continue smoothly.
+      _savedGlobalPos = _lastGlobalPos! + Offset(_txX, _txY);
+      _savedVelX = _velX;
+      _savedVelY = _velY;
+    } else {
+      _savedGlobalPos = _lastGlobalPos;
+      _savedVelX = 0.0;
+      _savedVelY = 0.0;
+    }
+    _cachedRelativePos = null;
     _stopAnimation();
     _frame = null;
     super.detach();
@@ -216,12 +327,19 @@ class RenderAnimove extends RenderProxyBox {
   @override
   void dispose() {
     _stopAnimation();
+    _layerHandle.layer = null;
     super.dispose();
   }
 
   // --- Animation driving ---
 
-  void _startAnimation(double fromX, double fromY, double velX, double velY) {
+  void _startAnimation(
+    double fromX, double fromY, double velX, double velY, {
+    RenderAnimoveFrame? zOrderFrame,
+  }) {
+    // Unregister from previous frame if switching
+    _registeredFrame?._unregisterAnimating(this);
+
     _simX = _simulationFactory(fromX, 0.0, velX);
     _simY = _simulationFactory(fromY, 0.0, velY);
     _animationStart = null; // will be set on first tick
@@ -229,6 +347,9 @@ class RenderAnimove extends RenderProxyBox {
     _txY = fromY;
     _velX = velX;
     _velY = velY;
+
+    _registeredFrame = zOrderFrame ?? _frame;
+    _registeredFrame?._registerAnimating(this);
 
     if (!_ticker.isTicking) {
       _ticker.start();
@@ -243,6 +364,13 @@ class RenderAnimove extends RenderProxyBox {
     _txY = 0.0;
     _velX = 0.0;
     _velY = 0.0;
+
+    _registeredFrame?._unregisterAnimating(this);
+    _registeredFrame = null;
+    _isReparentAnim = false;
+    _registeredRelativePos = null;
+    _layerHandle.layer = null;
+
     if (_ticker.isTicking) {
       _ticker.stop();
     }
@@ -277,6 +405,10 @@ class RenderAnimove extends RenderProxyBox {
     }
 
     markNeedsPaint();
+    // Ensure the registered frame repaints too — repaint boundaries between
+    // us and it would otherwise prevent it from updating (or removing) our
+    // reparented z-ordering layer.
+    _registeredFrame?.markNeedsPaint();
   }
 
   // --- Paint ---
@@ -287,44 +419,72 @@ class RenderAnimove extends RenderProxyBox {
 
     final frame = _frame;
     if (frame == null) {
-      // No frame found — paint normally
-      context.paintChild(child!, offset);
+      // No frame found — paint as frame only (no animation)
+      paintFrame(context, offset);
       return;
     }
 
-    final relativePos = frame.getRelativeOffset(this);
-
-    if (_pendingReparent && _savedGlobalPos != null) {
-      // Reparented: map old global position into new frame's coordinate space
-      final oldPosInFrame = MatrixUtils.transformPoint(
-        frame.getTransformTo(null)..invert(),
-        _savedGlobalPos!,
-      );
-      final translation = oldPosInFrame - relativePos;
-      _startAnimation(translation.dx, translation.dy, 0.0, 0.0);
-      _pendingReparent = false;
-      _savedGlobalPos = null;
-    } else if (_cachedRelativePos != null &&
-        (_cachedRelativePos! - relativePos).distance > _kEpsilon) {
-      // Position changed — start or interrupt animation
-      final delta = _cachedRelativePos! - relativePos;
-      if (_isAnimating) {
-        // Interruption: compose current visual translation with new delta
-        final newTxX = _txX + delta.dx;
-        final newTxY = _txY + delta.dy;
-        _startAnimation(newTxX, newTxY, _velX, _velY);
-      } else {
-        _startAnimation(delta.dx, delta.dy, 0.0, 0.0);
+    if (_isReparentAnim) {
+      // During reparent animation, track position in the registered (root)
+      // frame's space for z-ordering layer placement. Skip normal position-
+      // change detection — it uses a different coordinate space.
+      if (_registeredFrame != null) {
+        _registeredRelativePos = _registeredFrame!.getRelativeOffset(this);
       }
+      _lastGlobalPos = localToGlobal(Offset.zero);
+    } else {
+      final relativePos = frame.getRelativeOffset(this);
+
+      if (_pendingReparent && _savedGlobalPos != null) {
+        // Reparented: use the root frame for z-ordering so the overlay
+        // covers everything between origin and destination.
+        final rootFrame = _findRootFrame() ?? frame;
+        final rootRelPos = rootFrame.getRelativeOffset(this);
+        final oldRelPos = rootFrame.globalToRelative(_savedGlobalPos!);
+        final translation = oldRelPos - rootRelPos;
+        // Only animate if the position actually changed (skip trivial
+        // reparents like sliver garbage-collection at the same content pos).
+        if (translation.distanceSquared > _kEpsilon * _kEpsilon) {
+          _isReparentAnim = true;
+          _registeredRelativePos = rootRelPos;
+          _startAnimation(
+            translation.dx, translation.dy, _savedVelX, _savedVelY,
+            zOrderFrame: rootFrame,
+          );
+        }
+        _pendingReparent = false;
+        _savedGlobalPos = null;
+      } else if (_cachedRelativePos != null &&
+          (_cachedRelativePos! - relativePos).distanceSquared >
+              _kEpsilon * _kEpsilon) {
+        // Position changed — start or interrupt animation
+        final delta = _cachedRelativePos! - relativePos;
+        if (_isAnimating) {
+          // Interruption: compose current visual translation with new delta
+          final newTxX = _txX + delta.dx;
+          final newTxY = _txY + delta.dy;
+          _startAnimation(newTxX, newTxY, _velX, _velY);
+        } else {
+          _startAnimation(delta.dx, delta.dy, 0.0, 0.0);
+        }
+      }
+
+      _cachedRelativePos = relativePos;
+      _lastGlobalPos = localToGlobal(Offset.zero);
     }
 
-    _cachedRelativePos = relativePos;
-    _lastGlobalPos = localToGlobal(Offset.zero);
-
     if (_isAnimating) {
-      context.paintChild(child!, offset + Offset(_txX, _txY));
+      // Push an OffsetLayer so the registered frame can reparent it for
+      // z-ordering. The LayerHandle keeps refcount > 0 during reparenting.
+      _layerHandle.layer = OffsetLayer(offset: offset);
+      context.pushLayer(_offsetLayer!, (ctx, _) {
+        // Inside our animation layer, paint as a frame (handles z-ordering
+        // for any animating descendants nested inside us).
+        paintFrame(ctx, Offset(_txX, _txY));
+      }, Offset.zero);
     } else {
-      context.paintChild(child!, offset);
+      _layerHandle.layer = null;
+      paintFrame(context, offset);
     }
   }
 }

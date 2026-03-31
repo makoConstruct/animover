@@ -91,7 +91,10 @@ class _SwapDemoState extends State<SwapDemo> {
     required ScrollController controller,
   }) {
     return switch (library) {
-      Library.animove => AnimoveSliverFrame(controller: controller, child: child),
+      Library.animove => AnimoveSliverFrame(
+        controller: controller,
+        child: child,
+      ),
       Library.animatedTo => child,
       Library.heroAnimation => child,
     };
@@ -102,20 +105,34 @@ class _SwapDemoState extends State<SwapDemo> {
   // Slot → item index mapping (starts as identity).
   late List<int> _slots = List.generate(13, (i) => i);
 
-  final _labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
+  final _labels = [
+    'A',
+    'B',
+    'C',
+    'D',
+    'E',
+    'F',
+    'G',
+    'H',
+    'I',
+    'J',
+    'K',
+    'L',
+    'M',
+  ];
   final _colors = [
-    Colors.red,        // A 0
-    Colors.orange,     // B 1
-    Colors.teal,       // C 2
-    Colors.blue,       // D 3
-    Colors.purple,     // E 4
-    Colors.green,      // F 5
-    Colors.amber,      // G 6
-    Colors.pink,       // H 7
-    Colors.cyan,       // I 8
-    Colors.indigo,     // J 9
-    Colors.lime,       // K 10
-    Colors.brown,      // L 11
+    Colors.red, // A 0
+    Colors.orange, // B 1
+    Colors.teal, // C 2
+    Colors.blue, // D 3
+    Colors.purple, // E 4
+    Colors.green, // F 5
+    Colors.amber, // G 6
+    Colors.pink, // H 7
+    Colors.cyan, // I 8
+    Colors.indigo, // J 9
+    Colors.lime, // K 10
+    Colors.brown, // L 11
     Colors.deepOrange, // M 12
   ];
 
@@ -201,7 +218,10 @@ class _SwapDemoState extends State<SwapDemo> {
                 for (final (label, cb) in buttons)
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
@@ -228,10 +248,16 @@ class _SwapDemoState extends State<SwapDemo> {
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
               child: SegmentedButton<Library>(
                 segments: Library.values
-                    .map((lib) => ButtonSegment(value: lib, label: Text(libraryName(lib))))
+                    .map(
+                      (lib) => ButtonSegment(
+                        value: lib,
+                        label: Text(libraryName(lib)),
+                      ),
+                    )
                     .toList(),
                 selected: {library},
-                onSelectionChanged: (sel) => setState(() => library = sel.first),
+                onSelectionChanged: (sel) =>
+                    setState(() => library = sel.first),
               ),
             ),
 
@@ -297,29 +323,32 @@ class _SwapDemoState extends State<SwapDemo> {
                   // Vertical sliver (D, spacer, E)
                   Expanded(
                     child: LayoutBuilder(
-                      builder: (context, constraints) => createAnimoveSliverFrame(
-                        child: CustomScrollView(
-                          controller: _scrollController,
-                          slivers: [
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: _item(3), // D
-                              ),
+                      builder: (context, constraints) =>
+                          createAnimoveSliverFrame(
+                            child: CustomScrollView(
+                              controller: _scrollController,
+                              slivers: [
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: _item(3), // D
+                                  ),
+                                ),
+                                SliverToBoxAdapter(
+                                  child: _ScrollSpacer(
+                                    span: constraints.maxHeight + 30,
+                                  ),
+                                ),
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: _item(4), // E
+                                  ),
+                                ),
+                              ],
                             ),
-                            SliverToBoxAdapter(
-                              child: _ScrollSpacer(span: constraints.maxHeight + 30),
-                            ),
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: _item(4), // E
-                              ),
-                            ),
-                          ],
-                        ),
-                        controller: _scrollController,
-                      ),
+                            controller: _scrollController,
+                          ),
                     ),
                   ),
 
@@ -328,30 +357,34 @@ class _SwapDemoState extends State<SwapDemo> {
                   // Horizontal sliver (F, spacer, G)
                   Expanded(
                     child: LayoutBuilder(
-                      builder: (context, constraints) => createAnimoveSliverFrame(
-                        child: CustomScrollView(
-                          controller: _horizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          slivers: [
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: _item(5), // F
-                              ),
+                      builder: (context, constraints) =>
+                          createAnimoveSliverFrame(
+                            child: CustomScrollView(
+                              controller: _horizontalScrollController,
+                              scrollDirection: Axis.horizontal,
+                              slivers: [
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: _item(5), // F
+                                  ),
+                                ),
+                                SliverToBoxAdapter(
+                                  child: _ScrollSpacer(
+                                    span: constraints.maxWidth + 30,
+                                    axis: Axis.horizontal,
+                                  ),
+                                ),
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: _item(6), // G
+                                  ),
+                                ),
+                              ],
                             ),
-                            SliverToBoxAdapter(
-                              child: _ScrollSpacer(span: constraints.maxWidth + 30, axis: Axis.horizontal),
-                            ),
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: _item(6), // G
-                              ),
-                            ),
-                          ],
-                        ),
-                        controller: _horizontalScrollController,
-                      ),
+                            controller: _horizontalScrollController,
+                          ),
                     ),
                   ),
 
@@ -360,11 +393,13 @@ class _SwapDemoState extends State<SwapDemo> {
                   // Non-sliver (SingleChildScrollView) with L, spacer, M
                   Expanded(
                     child: LayoutBuilder(
-                      builder: (context, constraints) => createAnimoveSliverFrame(
-                        child: SingleChildScrollView(
-                          controller: _nonSliverScrollController,
+                      builder: (context, constraints) => SingleChildScrollView(
+                        reverse: true,
+                        child: createAnimoveFrame(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            // mainAxisAlignment: MainAxisAlignment.end,
+                            // verticalDirection: VerticalDirection.up,
                             children: [
                               Padding(
                                 padding: const EdgeInsets.all(8),
@@ -378,7 +413,6 @@ class _SwapDemoState extends State<SwapDemo> {
                             ],
                           ),
                         ),
-                        controller: _nonSliverScrollController,
                       ),
                     ),
                   ),
@@ -419,7 +453,10 @@ class _ScrollSpacerState extends State<_ScrollSpacer> {
           borderRadius: BorderRadius.circular(8),
         ),
         alignment: Alignment.center,
-        child: const Text('spacer', style: TextStyle(color: Colors.grey, fontSize: 14)),
+        child: const Text(
+          'spacer',
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
       ),
     );
   }

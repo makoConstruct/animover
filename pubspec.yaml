@@ -1,5 +1,6 @@
 name: animove
 description: "Animates all movement, even movement from layout changes"
+homepage: https://github.com/makoConstruct/animove
 license: MIT
 repository: https://github.com/makoConstruct/animove
 version: 0.1.0

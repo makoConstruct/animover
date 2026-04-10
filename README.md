@@ -9,9 +9,9 @@ Inspired by [animated_to](https://github.com/chooyan-eng/animated_to). Major dif
 
 - AnimatedTo doesn't work within slivers.
 
-- It has visual glitches when you move between different frames (called "boundaries" there).
+- AnimatedTo has visual glitches when you move between different frames (called "boundaries" there).
 
-- For the purpose of hit testing/clicking, we treat the Animove'd widget as if it's already at the target destination, while AnimatedTo takes pains to make the hit test position equal the current visual position as animated. This may seem correct, in some way, but it's actually worse. If a user wants to click something before its animation completes (which is rare), it's almost always easier for them if they can treat the widget as if it's standing still at the target location, because they likely already know where the target location is going to be.
+- For the purpose of hit testing/clicking, we treat the Animove'd widget as if it's already at the target destination, while AnimatedTo takes pains to make the hit test position equal the current visual position as animated. AnimatedTo's way may seem correct, in a sense, but it's actually worse from a usability perspective (and it's definitely far more complex to implement). If a user wants to click something before its animation completes (which is rare), it's almost always easier for them if they can treat the widget as if it's standing still at the target location, because they likely already know where the target location is going to be.
 
 As for disadvantages, I don't see any right now, I'm going to ask the author of AnimatedTo whether we're missing any major features, and I'll address them or mention their absense here.
 

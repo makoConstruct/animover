@@ -1,31 +1,29 @@
 # Animove
 
-**edit: This is on hiatus. Just noticed that [animated_to](https://github.com/chooyan-eng/animated_to) got AnimatedToBoundary since I last checked it out. We're not bringing much beyond what they have, now. We could exceed them but my own needs in timer app don't really require exceeding them so I'm not going to do it.**
+Make it so that when a widget's is moved from one part of the screen to another, the movement is animated appropriately. Simply place an `Animove` around the widgets that you need to move smoothly, and place an `AnimoveFrame` around the page widget.
 
-When a widget moves from one position to another, flutter offers no way to make that animate smoothly. We fix this. Simply place an `AnimoveFrame` around the whole app, and wrap any widget you expect to jump around in an `Animove`.
+Inspired by [animated_to](https://github.com/chooyan-eng/animated_to). But we have many advantages:
 
-Inspired by [animated_to](https://github.com/chooyan-eng/animated_to). Animated_to had problems with scrolling containers. Our approach resolves those. It was apparent to us that animation needs to happen within a reference frame, to prevent animation from occuring in situations where it shouldn't, and also eventually to make sure that the draw order is right (but that's not in yet), so we introduced `AnimatedFrame`s, which encompass and separate the reference frames and cause scrolling to work properly.
+- They don't work within slivers.
 
-### Whenever you're scrolling
+- They have horrible visual glitches when you move between different frames (they call them boundaries).
 
-- If your scrollview doesn't use slivers, put an `AnimoveFrame` around the child of the scrollview. This will prevent the contents from lagging behind when you scroll. You probably don't want them to do that, (*though, strangely, some sites, even modern ones, seem to have that effect intentionally for stylistic reasons*).
+- Their code is overly elaborate in ways that are harming readability more than they're helping maintainability (its codebase is larger by a factor of 3).
 
-- If your scrollview uses slivers, put an `AnimoveSliverFrame` around the scrollview.
+- For the purpose of hit testing/clicking, we treat the Animove'd widget as if it's already at the target destination, while AnimatedTo takes pains to make the hit test position equal the visual position, which is actually bad. If a user wants to click something before its animation completes (which is rare), it's almost always easier for them if they can treat the widget as if it's standing still at the target location, because they likely already know where the target location is going to be.
 
-Scrollviews will work great given that.
+As for disadvantages, I don't see any right now, I'm going to ask the author whether we're missing any major features, and I'll address them or mention their absense here.
 
-### Zindex/clipping issues
+### Note: Scrolling
 
-The widget will have the zindex/clip bounds of its new position instantly, which will often look like a discontinuity or error in the animation. I think we can fix this by giving each `AnimoveFrame` an overlay and painting there instead of at the site, but I'm not sure we can defer/project paint like that, iirc flutter forbids painting out of layout order. If so, we have a major problem here, but I should probably complain to the project and maybe they'll just remove that assert. But also, AnimatedTo and Hero does it somehow, we can probably imitate that.
+Position changes due to scrolling are already smooth, so don't need to be animated, so, if you have a scrollview, you probably want to put an `AnimoveFrame` around the child so that Animove'd descendents of the scrollview don't lag behind when you scroll. If it's a sliver list, you need to use an `AnimoveSliverFrame` instead. (*though, strangely, some websites, even modern ones, seem to leave this scroll-lagging effect in intentionally, for stylistic reasons, I guess it conveys a subtle visual distinction between the animoved and non-animoved content*).
 
-### If you want to animate size changes
+### roadmap/wishlist
 
-Size changes have to be handled differently, by you. Flutter's default AnimatedSize seems pretty useless, as I don't think it passes constraints from the surrounding through the size animator to the child, that seems kinda impossible and the docs' example seems to conspicuously avoid revealing what would happen in such a situation. But it might be possible to make such a widget, where it runs layout on the child once with the outside given constraints, uses that to target then animation, then lays the child out for real with the animated size change.
+- Handling resizing well. There are two parts to this:
 
-But the *right* way to animate size layout changes is with an instant layout change and a gradual paint change, which we started working on with a `RanimatedContainer` in a previous project, and we might complete that and move it over here soon.
+    - Handling alignment. If you have a right-aligned AnimoveFrame with a right aligned Animove child, and you downsize the AnimoveFrame, the child shouldn't move, as relative to the screen, or the frame above its frame, it hasn't moved. Currently, it will move, because relative to the left side of its nearest frame, it has moved, and the Animove doesn't know that it was right aligned or that the parent frame also moved to negate its movement. I think we can fix this? AnimoveFrame can, in theory, use its knowledge of its position relative to the parent AnimoveFrame to decide whether a resize should cause its items to animate or not, or, it should be able to adjust their start position.
 
-Once you are structuring your containers like RanimatedContainers, and putting everything in Animoves, that will be a complete solution to animating layout changes.
+    - Providing containers whose background size animates well ("AnisizedContainer"?) Currently you can get one from my previous (now deprecated) https://github.com/makoConstruct/animated_containers, it's called RanimatedContainer.
 
-### How this was made
-
-Rarely for me, it was almost entirely vibecoded in the absolute sense where I have not read and understood most of this code. It turned out to have a lot of issues that require reading many different parts of other peoples' poorly modularized code to debug (the robot is better at that than a human is), the principles I supplied initially were mostly enough to get it to work, and we never ran into an issue that seemed to require the human to understand the code. So be warned, some of the code might lack intentionality.
+Given that, I believe that'll be a complete solution to animating layout changes.

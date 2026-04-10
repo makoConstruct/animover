@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -46,26 +48,17 @@ class RenderAnimoveFrame extends RenderProxyBox {
   void paintFrame(PaintingContext context, Offset offset) {
     if (child == null) return;
 
-    if (_animatingDescendants.isEmpty) {
-      // No animations — paint normally, no extra layer
-      context.paintChild(child!, offset);
-      return;
-    }
+    context.paintChild(child!, offset);
+    if (_animatingDescendants.isEmpty) return;
 
     // Push a fresh container layer so we can reparent animating layers on top.
     final containerLayer = OffsetLayer(offset: offset);
     context.pushLayer(containerLayer, (ctx, _) {
-      ctx.paintChild(child!, Offset.zero);
-
       for (final animove in _animatingDescendants) {
-        final layer = animove._offsetLayer;
+        final layer = animove._layerHandle.layer;
         if (layer != null) {
           layer.remove();
-          // Reparent animations use root-frame-relative position;
-          // normal animations use nearest-frame-relative position.
-          layer.offset = animove._isReparentAnim
-              ? (animove._registeredRelativePos ?? Offset.zero)
-              : (animove._cachedRelativePos ?? Offset.zero);
+          layer.offset = getRelativeOffset(animove);
           containerLayer.append(layer);
         }
       }
@@ -211,12 +204,11 @@ Simulation defaultSimulationFactory(
 
 class RenderAnimove extends RenderAnimoveFrame {
   RenderAnimove({
-    RenderBox? child,
+    super.child,
     required Ticker ticker,
     SimulationFactory? simulationFactory,
   }) : _ticker = ticker,
-       _simulationFactory = simulationFactory ?? defaultSimulationFactory,
-       super(child: child);
+       _simulationFactory = simulationFactory ?? defaultSimulationFactory;
 
   final Ticker _ticker;
   SimulationFactory _simulationFactory;
@@ -227,6 +219,8 @@ class RenderAnimove extends RenderAnimoveFrame {
 
   // --- Frame lookup ---
 
+  /// Nearest ancestor frame. Kept across detach so we can find the common
+  /// ancestor with the new frame on re-attach.
   RenderAnimoveFrame? _frame;
 
   RenderAnimoveFrame? _findFrame() {
@@ -238,16 +232,37 @@ class RenderAnimove extends RenderAnimoveFrame {
     return null;
   }
 
-  /// Finds the outermost ancestor frame. Used for reparent animations so
-  /// the overlay can paint on top of everything between origin and destination.
-  RenderAnimoveFrame? _findRootFrame() {
-    RenderAnimoveFrame? result;
-    RenderObject? ancestor = parent;
-    while (ancestor != null) {
-      if (ancestor is RenderAnimoveFrame) result = ancestor;
-      ancestor = ancestor.parent;
+  /// Finds the closest common ancestor frame between two frames.
+  /// Returns null if either frame is null or they share no common ancestor.
+  static RenderAnimoveFrame? _commonAncestorFrame(
+    RenderAnimoveFrame? frame1,
+    RenderAnimoveFrame? frame2,
+  ) {
+    if (frame1 == null || frame2 == null) return null;
+    if (frame1 == frame2) return frame1;
+
+    List<RenderAnimoveFrame> ancestors(RenderAnimoveFrame frame) {
+      final list = <RenderAnimoveFrame>[frame];
+      RenderObject? node = frame.parent;
+      while (node != null) {
+        if (node is RenderAnimoveFrame) list.add(node);
+        node = node.parent;
+      }
+      return list;
     }
-    return result;
+
+    final a1 = ancestors(frame1);
+    final a2 = ancestors(frame2);
+
+    RenderAnimoveFrame? common;
+    for (int i = min(a1.length, a2.length) - 1; i > -1; i--) {
+      if (a1[i] == a2[i]) {
+        common = a1[i];
+      } else {
+        break;
+      }
+    }
+    return common;
   }
 
   // --- Animation state ---
@@ -256,11 +271,8 @@ class RenderAnimove extends RenderAnimoveFrame {
   Simulation? _simY;
   Duration? _animationStart;
 
-  // Current translation offset (visual displacement from layout position)
   double _txX = 0.0;
   double _txY = 0.0;
-
-  // Current velocity
   double _velX = 0.0;
   double _velY = 0.0;
 
@@ -268,59 +280,49 @@ class RenderAnimove extends RenderAnimoveFrame {
 
   // --- Position tracking ---
 
-  Offset? _cachedRelativePos;
-  Offset? _lastGlobalPos;
+  /// Position relative to [_frame], or global if [_frame] is null.
+  /// On detach, includes the visual translation offset so re-attach
+  /// can animate from where the user last saw the widget.
+  Offset? _posFromFrame;
 
   // --- Layer for z-ordering ---
-  // LayerHandle keeps refcount > 0 so the layer isn't disposed when
-  // the frame reparents it (remove() drops the parent's handle).
 
   final LayerHandle<OffsetLayer> _layerHandle = LayerHandle<OffsetLayer>();
-  OffsetLayer? get _offsetLayer => _layerHandle.layer;
 
   // --- Reparenting ---
 
-  Offset? _savedGlobalPos;
-  double _savedVelX = 0.0;
-  double _savedVelY = 0.0;
+  /// The common-ancestor frame used for z-ordering during reparent animation.
+  /// null when not reparent-animating.
+  RenderAnimoveFrame? _animFrame;
+
+  /// The previous frame, saved on attach when a reparent is detected.
+  RenderAnimoveFrame? _previousFrame;
   bool _pendingReparent = false;
 
-  // During reparent animations, z-ordering registers with the root frame
-  // (not the nearest frame) so the overlay covers everything between
-  // origin and destination. _registeredFrame tracks which frame we're
-  // registered with; _registeredRelativePos is our position in that
-  // frame's coordinate space (for layer placement).
-  bool _isReparentAnim = false;
-  RenderAnimoveFrame? _registeredFrame;
-  Offset? _registeredRelativePos;
+  bool get isReparentAnimating => _animFrame != null && _animFrame != _frame;
 
   // --- Lifecycle ---
 
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    _frame = _findFrame();
-    if (_savedGlobalPos != null) {
+    final newFrame = _findFrame();
+    if (newFrame != _frame && _posFromFrame != null) {
+      _previousFrame = _frame;
       _pendingReparent = true;
     }
+    _frame = newFrame;
   }
 
   @override
   void detach() {
-    if (_isAnimating && _lastGlobalPos != null) {
-      // Save visual position (layout + animation translation) and velocity
-      // so reparent animation can continue smoothly.
-      _savedGlobalPos = _lastGlobalPos! + Offset(_txX, _txY);
-      _savedVelX = _velX;
-      _savedVelY = _velY;
-    } else {
-      _savedGlobalPos = _lastGlobalPos;
-      _savedVelX = 0.0;
-      _savedVelY = 0.0;
+    if (_isAnimating) {
+      _posFromFrame = (_posFromFrame ?? Offset.zero) + Offset(_txX, _txY);
     }
-    _cachedRelativePos = null;
-    _stopAnimation();
-    _frame = null;
+    _animFrame?._unregisterAnimating(this);
+    _animFrame = null;
+    _layerHandle.layer = null;
+    _pauseAnimation();
     super.detach();
   }
 
@@ -333,29 +335,27 @@ class RenderAnimove extends RenderAnimoveFrame {
 
   // --- Animation driving ---
 
-  void _startAnimation(
-    double fromX, double fromY, double velX, double velY, {
-    RenderAnimoveFrame? zOrderFrame,
-  }) {
-    // Unregister from previous frame if switching
-    _registeredFrame?._unregisterAnimating(this);
-
+  void _startAnimation(double fromX, double fromY, double velX, double velY) {
     _simX = _simulationFactory(fromX, 0.0, velX);
     _simY = _simulationFactory(fromY, 0.0, velY);
-    _animationStart = null; // will be set on first tick
+    _animationStart = null;
     _txX = fromX;
     _txY = fromY;
     _velX = velX;
     _velY = velY;
-
-    _registeredFrame = zOrderFrame ?? _frame;
-    _registeredFrame?._registerAnimating(this);
 
     if (!_ticker.isTicking) {
       _ticker.start();
     }
   }
 
+  void _pauseAnimation() {
+    if (_ticker.isTicking) {
+      _ticker.stop();
+    }
+  }
+
+  /// Stops animation on completion: zeros all state including velocity.
   void _stopAnimation() {
     _simX = null;
     _simY = null;
@@ -365,10 +365,8 @@ class RenderAnimove extends RenderAnimoveFrame {
     _velX = 0.0;
     _velY = 0.0;
 
-    _registeredFrame?._unregisterAnimating(this);
-    _registeredFrame = null;
-    _isReparentAnim = false;
-    _registeredRelativePos = null;
+    _animFrame?._unregisterAnimating(this);
+    _animFrame = null;
     _layerHandle.layer = null;
 
     if (_ticker.isTicking) {
@@ -405,10 +403,7 @@ class RenderAnimove extends RenderAnimoveFrame {
     }
 
     markNeedsPaint();
-    // Ensure the registered frame repaints too — repaint boundaries between
-    // us and it would otherwise prevent it from updating (or removing) our
-    // reparented z-ordering layer.
-    _registeredFrame?.markNeedsPaint();
+    _animFrame?.markNeedsPaint();
   }
 
   // --- Paint ---
@@ -417,71 +412,72 @@ class RenderAnimove extends RenderAnimoveFrame {
   void paint(PaintingContext context, Offset offset) {
     if (child == null) return;
 
-    final frame = _frame;
-    if (frame == null) {
-      // No frame found — paint as frame only (no animation)
+    if (_frame == null) {
+      // No frame — track global position, paint without animation.
+      _posFromFrame = localToGlobal(Offset.zero);
       paintFrame(context, offset);
       return;
     }
 
-    if (_isReparentAnim) {
-      // During reparent animation, track position in the registered (root)
-      // frame's space for z-ordering layer placement. Skip normal position-
-      // change detection — it uses a different coordinate space.
-      if (_registeredFrame != null) {
-        _registeredRelativePos = _registeredFrame!.getRelativeOffset(this);
-      }
-      _lastGlobalPos = localToGlobal(Offset.zero);
-    } else {
-      final relativePos = frame.getRelativeOffset(this);
+    final newPos = _frame!.getRelativeOffset(this);
 
-      if (_pendingReparent && _savedGlobalPos != null) {
-        // Reparented: use the root frame for z-ordering so the overlay
-        // covers everything between origin and destination.
-        final rootFrame = _findRootFrame() ?? frame;
-        final rootRelPos = rootFrame.getRelativeOffset(this);
-        final oldRelPos = rootFrame.globalToRelative(_savedGlobalPos!);
-        final translation = oldRelPos - rootRelPos;
-        // Only animate if the position actually changed (skip trivial
-        // reparents like sliver garbage-collection at the same content pos).
-        if (translation.distanceSquared > _kEpsilon * _kEpsilon) {
-          _isReparentAnim = true;
-          _registeredRelativePos = rootRelPos;
-          _startAnimation(
-            translation.dx, translation.dy, _savedVelX, _savedVelY,
-            zOrderFrame: rootFrame,
-          );
+    if (!isReparentAnimating) {
+      if (_pendingReparent) {
+        if (_posFromFrame != null) {
+          final commonAncestor = _commonAncestorFrame(_previousFrame, _frame);
+
+          // Convert old visual position to common ancestor (or global) space.
+          Offset oldPosInAncestor;
+          if (_previousFrame != null && _previousFrame!.attached) {
+            final globalOld = _previousFrame!.localToGlobal(_posFromFrame!);
+            oldPosInAncestor =
+                commonAncestor?.globalToRelative(globalOld) ?? globalOld;
+          } else {
+            // Previous frame was null (global) or no longer attached.
+            oldPosInAncestor =
+                commonAncestor?.globalToRelative(_posFromFrame!) ??
+                _posFromFrame!;
+          }
+
+          // New position in common ancestor (or global) space.
+          final newPosInAncestor = commonAncestor != null
+              ? commonAncestor.getRelativeOffset(this)
+              : localToGlobal(Offset.zero);
+
+          final translation = oldPosInAncestor - newPosInAncestor;
+          if (translation.distanceSquared > _kEpsilon * _kEpsilon) {
+            _animFrame?._unregisterAnimating(this);
+            _animFrame = commonAncestor;
+            _animFrame?._registerAnimating(this);
+            _startAnimation(translation.dx, translation.dy, _velX, _velY);
+          }
         }
         _pendingReparent = false;
-        _savedGlobalPos = null;
-      } else if (_cachedRelativePos != null &&
-          (_cachedRelativePos! - relativePos).distanceSquared >
-              _kEpsilon * _kEpsilon) {
-        // Position changed — start or interrupt animation
-        final delta = _cachedRelativePos! - relativePos;
+        _previousFrame = null;
+      } else if (_posFromFrame != null &&
+          (_posFromFrame! - newPos).distanceSquared > _kEpsilon * _kEpsilon) {
+        // Position changed within same frame — start or interrupt animation.
+        final delta = _posFromFrame! - newPos;
         if (_isAnimating) {
-          // Interruption: compose current visual translation with new delta
-          final newTxX = _txX + delta.dx;
-          final newTxY = _txY + delta.dy;
-          _startAnimation(newTxX, newTxY, _velX, _velY);
+          _startAnimation(_txX + delta.dx, _txY + delta.dy, _velX, _velY);
         } else {
           _startAnimation(delta.dx, delta.dy, 0.0, 0.0);
         }
       }
-
-      _cachedRelativePos = relativePos;
-      _lastGlobalPos = localToGlobal(Offset.zero);
     }
 
-    if (_isAnimating) {
-      // Push an OffsetLayer so the registered frame can reparent it for
-      // z-ordering. The LayerHandle keeps refcount > 0 during reparenting.
+    _posFromFrame = newPos;
+
+    if (_isAnimating && isReparentAnimating) {
+      // Push an OffsetLayer so the animation frame can reparent it for
+      // z-ordering above everything between origin and destination.
       _layerHandle.layer = OffsetLayer(offset: offset);
-      context.pushLayer(_offsetLayer!, (ctx, _) {
-        // Inside our animation layer, paint as a frame (handles z-ordering
-        // for any animating descendants nested inside us).
+      context.pushLayer(_layerHandle.layer!, (ctx, _) {
         paintFrame(ctx, Offset(_txX, _txY));
       }, Offset.zero);
+    } else if (_isAnimating) {
+      _layerHandle.layer = null;
+      paintFrame(context, offset + Offset(_txX, _txY));
     } else {
       _layerHandle.layer = null;
       paintFrame(context, offset);

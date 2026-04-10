@@ -11,6 +11,8 @@ dependencies:
   animove:
     path: ../
   animated_to: ^0.8.1
+  # animated_to:
+  #   path: /home/mako/programming/colab/animated_to
   hero_animation: ^1.1.4
 
 flutter:

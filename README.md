@@ -1,11 +1,10 @@
 # Animove
 
-[![pub.dev](https://img.shields.io/pub/v/animove.svg)](https://pub.dev/packages/a
-   +nimove) 
+[![pub.dev](https://img.shields.io/pub/v/animove.svg)](https://pub.dev/packages/animove) 
 
 Makes it so that when a widget is moved from one part of the screen to another, the movement is animated appropriately. Simply place an `Animove` around the widgets that you need to move smoothly, and place an `AnimoveFrame` around the page widget.
 
-Inspired by [animated_to](https://github.com/chooyan-eng/animated_to). Major differences:
+Inspired by [animated_to](https://github.com/chooyan-eng/animated_to). Our improvements:
 
 - AnimatedTo doesn't work within slivers.
 

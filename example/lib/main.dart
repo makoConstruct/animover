@@ -42,6 +42,7 @@ String libraryName(Library library) {
 class _SwapDemoState extends State<SwapDemo> {
   // 13 items: A–G (slots 0–6), H–K (nested, slots 7–10), L–M (non-sliver, slots 11–12)
   final _keys = List.generate(13, (i) => GlobalKey(debugLabel: 'item-$i'));
+  final _itemWidgetKeys = List.generate(13, (i) => GlobalKey(debugLabel: 'item-widget-$i'));
 
   // Two extra GlobalKeys for the outer animove wrappers in the nested section.
   final _nestedGroupKeys = [
@@ -166,27 +167,12 @@ class _SwapDemoState extends State<SwapDemo> {
 
   Widget _item(int slot) {
     final i = _slots[slot];
-    return createAnimove(
-      child: Container(
-        width: 120,
-        height: 50,
-        margin: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: _colors[i],
-          borderRadius: BorderRadius.circular(8),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          _labels[i],
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-      ),
-      key: _keys[i],
-      tag: _labels[i],
+    return _ItemWidget(
+      key: _itemWidgetKeys[i],
+      animoveKey: _keys[i],
+      color: _colors[i],
+      label: _labels[i],
+      library: library,
     );
   }
 
@@ -423,6 +409,75 @@ class _SwapDemoState extends State<SwapDemo> {
         ),
       ),
     );
+  }
+}
+
+class _ItemWidget extends StatefulWidget {
+  const _ItemWidget({
+    required super.key,
+    required this.animoveKey,
+    required this.color,
+    required this.label,
+    required this.library,
+  });
+
+  final GlobalKey animoveKey;
+  final Color color;
+  final String label;
+  final Library library;
+
+  @override
+  State<_ItemWidget> createState() => _ItemWidgetState();
+}
+
+class _ItemWidgetState extends State<_ItemWidget> {
+  bool _enabled = true;
+
+  Widget _buildContent() {
+    return GestureDetector(
+      onTap: () => setState(() => _enabled = !_enabled),
+      child: Opacity(
+        opacity: _enabled ? 1.0 : 0.4,
+        child: Container(
+          width: 120,
+          height: 50,
+          margin: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: widget.color,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            widget.label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (widget.library) {
+      Library.animove => Animove(
+        key: widget.animoveKey,
+        enabled: _enabled,
+        child: _buildContent(),
+      ),
+      Library.animatedTo => AnimatedTo.spring(
+        globalKey: widget.animoveKey,
+        enabled: _enabled,
+        child: _buildContent(),
+      ),
+      Library.heroAnimation => HeroAnimation.child(
+        tag: widget.label,
+        child: _buildContent(),
+      ),
+    };
   }
 }
 

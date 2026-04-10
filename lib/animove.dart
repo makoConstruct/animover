@@ -207,14 +207,26 @@ class RenderAnimove extends RenderAnimoveFrame {
     super.child,
     required Ticker ticker,
     SimulationFactory? simulationFactory,
+    bool enabled = true,
   }) : _ticker = ticker,
-       _simulationFactory = simulationFactory ?? defaultSimulationFactory;
+       _simulationFactory = simulationFactory ?? defaultSimulationFactory,
+       _enabled = enabled;
 
   final Ticker _ticker;
   SimulationFactory _simulationFactory;
 
   set simulationFactory(SimulationFactory value) {
     _simulationFactory = value;
+  }
+
+  bool _enabled;
+  set enabled(bool value) {
+    if (_enabled == value) return;
+    _enabled = value;
+    if (!_enabled && _isAnimating) {
+      _stopAnimation();
+      markNeedsPaint();
+    }
   }
 
   // --- Frame lookup ---
@@ -423,7 +435,7 @@ class RenderAnimove extends RenderAnimoveFrame {
 
     if (!isReparentAnimating) {
       if (_pendingReparent) {
-        if (_posFromFrame != null) {
+        if (_posFromFrame != null && _enabled) {
           final commonAncestor = _commonAncestorFrame(_previousFrame, _frame);
 
           // Convert old visual position to common ancestor (or global) space.
@@ -454,7 +466,8 @@ class RenderAnimove extends RenderAnimoveFrame {
         }
         _pendingReparent = false;
         _previousFrame = null;
-      } else if (_posFromFrame != null &&
+      } else if (_enabled &&
+          _posFromFrame != null &&
           (_posFromFrame! - newPos).distanceSquared > _kEpsilon * _kEpsilon) {
         // Position changed within same frame — start or interrupt animation.
         final delta = _posFromFrame! - newPos;
@@ -489,10 +502,12 @@ class Animove extends StatefulWidget {
   const Animove({
     required GlobalKey super.key,
     this.simulationFactory,
+    this.enabled = true,
     required this.child,
   });
 
   final SimulationFactory? simulationFactory;
+  final bool enabled;
   final Widget child;
 
   @override
@@ -526,6 +541,7 @@ class _AnimoveState extends State<Animove> with SingleTickerProviderStateMixin {
     return _AnimoveRenderWidget(
       ticker: _ticker,
       simulationFactory: widget.simulationFactory ?? defaultSimulationFactory,
+      enabled: widget.enabled,
       child: widget.child,
     );
   }
@@ -535,19 +551,27 @@ class _AnimoveRenderWidget extends SingleChildRenderObjectWidget {
   const _AnimoveRenderWidget({
     required this.ticker,
     required this.simulationFactory,
+    required this.enabled,
     required super.child,
   });
 
   final Ticker ticker;
   final SimulationFactory simulationFactory;
+  final bool enabled;
 
   @override
   RenderAnimove createRenderObject(BuildContext context) {
-    return RenderAnimove(ticker: ticker, simulationFactory: simulationFactory);
+    return RenderAnimove(
+      ticker: ticker,
+      simulationFactory: simulationFactory,
+      enabled: enabled,
+    );
   }
 
   @override
   void updateRenderObject(BuildContext context, RenderAnimove renderObject) {
-    renderObject.simulationFactory = simulationFactory;
+    renderObject
+      ..simulationFactory = simulationFactory
+      ..enabled = enabled;
   }
 }

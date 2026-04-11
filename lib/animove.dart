@@ -5,6 +5,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+export 'anisized_container.dart';
+export 'timely_parabolic_simulation.dart';
+
 const double _kEpsilon = 0.0001;
 
 // --- Frame ---
@@ -195,7 +198,7 @@ Simulation defaultSimulationFactory(
   double velocity,
 ) {
   return SpringSimulation(
-    SpringDescription.withDampingRatio(mass: 1, stiffness: 200, ratio: 1),
+    SpringDescription.withDampingRatio(mass: 1, stiffness: 400, ratio: 1),
     current,
     target,
     velocity,

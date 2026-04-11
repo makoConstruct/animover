@@ -42,7 +42,10 @@ String libraryName(Library library) {
 class _SwapDemoState extends State<SwapDemo> {
   // 13 items: A–G (slots 0–6), H–K (nested, slots 7–10), L–M (non-sliver, slots 11–12)
   final _keys = List.generate(13, (i) => GlobalKey(debugLabel: 'item-$i'));
-  final _itemWidgetKeys = List.generate(13, (i) => GlobalKey(debugLabel: 'item-widget-$i'));
+  final _itemWidgetKeys = List.generate(
+    13,
+    (i) => GlobalKey(debugLabel: 'item-widget-$i'),
+  );
 
   // Two extra GlobalKeys for the outer animove wrappers in the nested section.
   final _nestedGroupKeys = [
@@ -438,7 +441,7 @@ class _ItemWidgetState extends State<_ItemWidget> {
       onTap: () => setState(() => _enabled = !_enabled),
       child: Opacity(
         opacity: _enabled ? 1.0 : 0.4,
-        child: Container(
+        child: AnisizedContainer(
           width: 120,
           height: 50,
           margin: const EdgeInsets.all(4),

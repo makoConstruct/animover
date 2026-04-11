@@ -237,16 +237,17 @@ class RenderAnimove extends RenderAnimoveFrame {
 
   RenderAnimoveFrame? _findFrame() {
     RenderObject? ancestor = parent;
-    while (ancestor != null) {
-      if (ancestor is RenderAnimoveFrame) return ancestor;
+    while (true) {
+      if (ancestor == null || ancestor is RenderAnimoveFrame) {
+        return ancestor as RenderAnimoveFrame?;
+      }
       ancestor = ancestor.parent;
     }
-    return null;
   }
 
   /// Finds the closest common ancestor frame between two frames.
   /// Returns null if either frame is null or they share no common ancestor.
-  static RenderAnimoveFrame? _commonAncestorFrame(
+  static RenderAnimoveFrame? _findCommonAncestorFrame(
     RenderAnimoveFrame? frame1,
     RenderAnimoveFrame? frame2,
   ) {
@@ -267,9 +268,9 @@ class RenderAnimove extends RenderAnimoveFrame {
     final a2 = ancestors(frame2);
 
     RenderAnimoveFrame? common;
-    for (int i = min(a1.length, a2.length) - 1; i > -1; i--) {
-      if (a1[i] == a2[i]) {
-        common = a1[i];
+    for (int i = 0; i < min(a1.length, a2.length); ++i) {
+      if (a1[a1.length - i - 1] == a2[a2.length - i - 1]) {
+        common = a1[a1.length - i - 1];
       } else {
         break;
       }
@@ -297,21 +298,29 @@ class RenderAnimove extends RenderAnimoveFrame {
   /// can animate from where the user last saw the widget.
   Offset? _posFromFrame;
 
+  /// The frame that was active at the last paint. Used during attach to
+  /// identify the common ancestor with the new frame.
+  RenderAnimoveFrame? _previousFrame;
+
   // --- Layer for z-ordering ---
 
   final LayerHandle<OffsetLayer> _layerHandle = LayerHandle<OffsetLayer>();
 
   // --- Reparenting ---
 
-  /// The common-ancestor frame used for z-ordering during reparent animation.
-  /// null when not reparent-animating.
-  RenderAnimoveFrame? _animFrame;
+  /// The common-ancestor frame between [_previousFrame] and the new frame,
+  /// found during attach. Used for z-ordering during reparent animation.
+  /// Nulled when the animation completes.
+  RenderAnimoveFrame? _commonAncestorFrame;
 
-  /// The previous frame, saved on attach when a reparent is detected.
-  RenderAnimoveFrame? _previousFrame;
+  /// The old visual position converted to [_commonAncestorFrame]'s coordinate
+  /// space, computed during attach. Consumed by paint to start the reparent
+  /// animation.
+  Offset? _positionFromCommonAncestor;
+
   bool _pendingReparent = false;
 
-  bool get isReparentAnimating => _animFrame != null && _animFrame != _frame;
+  bool _useLayerForAnimation = false;
 
   // --- Lifecycle ---
 
@@ -319,8 +328,26 @@ class RenderAnimove extends RenderAnimoveFrame {
   void attach(PipelineOwner owner) {
     super.attach(owner);
     final newFrame = _findFrame();
-    if (newFrame != _frame && _posFromFrame != null) {
-      _previousFrame = _frame;
+    if (newFrame != _previousFrame && _posFromFrame != null) {
+      _useLayerForAnimation = true;
+      // considering making new common ancestor be the common ancestor between the current nearest frame, the previous nearest frame, and also the previous common ancestor, to account for situations where the animation was already in a very high z-index and we don't want to suddely lower it.
+      _commonAncestorFrame = _findCommonAncestorFrame(_previousFrame, newFrame);
+      // if (_commonAncestorFrame != null && _commonAncestorFrame!.attached) {
+      //   commonAncestor = _findCommonAncestorFrame(_commonAncestorFrame, newFrame);
+      // }
+
+      // Convert old visual position to common ancestor (or global) space.
+      if (_previousFrame != null && _previousFrame!.attached) {
+        final globalOld = _previousFrame!.localToGlobal(_posFromFrame!);
+        _positionFromCommonAncestor =
+            _commonAncestorFrame?.globalToRelative(globalOld) ?? globalOld;
+      } else {
+        // Previous frame was null (global) or no longer attached.
+        _positionFromCommonAncestor =
+            _commonAncestorFrame?.globalToRelative(_posFromFrame!) ??
+            _posFromFrame!;
+      }
+
       _pendingReparent = true;
     }
     _frame = newFrame;
@@ -329,10 +356,11 @@ class RenderAnimove extends RenderAnimoveFrame {
   @override
   void detach() {
     if (_isAnimating) {
-      _posFromFrame = (_posFromFrame ?? Offset.zero) + Offset(_txX, _txY);
+      _posFromFrame ??= Offset.zero;
     }
-    _animFrame?._unregisterAnimating(this);
-    _animFrame = null;
+    _commonAncestorFrame?._unregisterAnimating(this);
+    _commonAncestorFrame = null;
+    _positionFromCommonAncestor = null;
     _layerHandle.layer = null;
     _pauseAnimation();
     super.detach();
@@ -377,8 +405,10 @@ class RenderAnimove extends RenderAnimoveFrame {
     _velX = 0.0;
     _velY = 0.0;
 
-    _animFrame?._unregisterAnimating(this);
-    _animFrame = null;
+    _commonAncestorFrame?._unregisterAnimating(this);
+    _commonAncestorFrame = null;
+    _positionFromCommonAncestor = null;
+    _useLayerForAnimation = false;
     _layerHandle.layer = null;
 
     if (_ticker.isTicking) {
@@ -415,7 +445,7 @@ class RenderAnimove extends RenderAnimoveFrame {
     }
 
     markNeedsPaint();
-    _animFrame?.markNeedsPaint();
+    _commonAncestorFrame?.markNeedsPaint();
   }
 
   // --- Paint ---
@@ -427,61 +457,45 @@ class RenderAnimove extends RenderAnimoveFrame {
     if (_frame == null) {
       // No frame — track global position, paint without animation.
       _posFromFrame = localToGlobal(Offset.zero);
+      _previousFrame = null;
       paintFrame(context, offset);
       return;
     }
 
     final newPos = _frame!.getRelativeOffset(this);
 
-    if (!isReparentAnimating) {
-      if (_pendingReparent) {
-        if (_posFromFrame != null && _enabled) {
-          final commonAncestor = _commonAncestorFrame(_previousFrame, _frame);
+    if (_pendingReparent) {
+      if (_positionFromCommonAncestor != null && _enabled) {
+        // New position in common ancestor (or global) space.
+        final newPosInAncestor = _commonAncestorFrame != null
+            ? _commonAncestorFrame!.getRelativeOffset(this)
+            : localToGlobal(Offset.zero);
 
-          // Convert old visual position to common ancestor (or global) space.
-          Offset oldPosInAncestor;
-          if (_previousFrame != null && _previousFrame!.attached) {
-            final globalOld = _previousFrame!.localToGlobal(_posFromFrame!);
-            oldPosInAncestor =
-                commonAncestor?.globalToRelative(globalOld) ?? globalOld;
-          } else {
-            // Previous frame was null (global) or no longer attached.
-            oldPosInAncestor =
-                commonAncestor?.globalToRelative(_posFromFrame!) ??
-                _posFromFrame!;
-          }
-
-          // New position in common ancestor (or global) space.
-          final newPosInAncestor = commonAncestor != null
-              ? commonAncestor.getRelativeOffset(this)
-              : localToGlobal(Offset.zero);
-
-          final translation = oldPosInAncestor - newPosInAncestor;
-          if (translation.distanceSquared > _kEpsilon * _kEpsilon) {
-            _animFrame?._unregisterAnimating(this);
-            _animFrame = commonAncestor;
-            _animFrame?._registerAnimating(this);
-            _startAnimation(translation.dx, translation.dy, _velX, _velY);
-          }
-        }
-        _pendingReparent = false;
-        _previousFrame = null;
-      } else if (_enabled &&
-          _posFromFrame != null &&
-          (_posFromFrame! - newPos).distanceSquared > _kEpsilon * _kEpsilon) {
-        // Position changed within same frame — start or interrupt animation.
-        final delta = _posFromFrame! - newPos;
-        if (_isAnimating) {
-          _startAnimation(_txX + delta.dx, _txY + delta.dy, _velX, _velY);
+        final translation =
+            _positionFromCommonAncestor! -
+            newPosInAncestor +
+            Offset(_txX, _txY);
+        if (translation.distanceSquared > _kEpsilon * _kEpsilon) {
+          _commonAncestorFrame?._registerAnimating(this);
+          _startAnimation(translation.dx, translation.dy, _velX, _velY);
         } else {
-          _startAnimation(delta.dx, delta.dy, 0.0, 0.0);
+          _commonAncestorFrame = null;
         }
       }
+      _pendingReparent = false;
+      _positionFromCommonAncestor = null;
+    } else if (_enabled &&
+        _posFromFrame != null &&
+        (_posFromFrame! - newPos).distanceSquared > _kEpsilon * _kEpsilon) {
+      // Position changed within same frame — start or interrupt animation.
+      final delta = _posFromFrame! + Offset(_txX, _txY) - newPos;
+      _startAnimation(delta.dx, delta.dy, _velX, _velY);
     }
 
     _posFromFrame = newPos;
+    _previousFrame = _frame;
 
-    if (_isAnimating && isReparentAnimating) {
+    if (_isAnimating && _useLayerForAnimation) {
       // Push an OffsetLayer so the animation frame can reparent it for
       // z-ordering above everything between origin and destination.
       _layerHandle.layer = OffsetLayer(offset: offset);

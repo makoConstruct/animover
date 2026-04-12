@@ -12,6 +12,10 @@ As for disadvantages, I don't see any right now, I'm going to ask the author of 
 
 We also provide `AnisizedContainer`, which animates resize in a way that harmonizes well with our other animated movements. Likewise, it does it by only running layout once, then depicting the change in layout over time in the container's background. So you may notice that the content of the AnisizedContainer reflows instantly, and this may or may not look glitchy. The solution (and this was always the only general solution to reflow animation) is to put the subwidgets in AnisizedContainers and Animoves as well.
 
+The following is footage from Mako's Timer, which uses Animoves. This whole extra dynamic reflowing animation is implemented simply as ordinary Wrap containers with some animoves in them.
+
+
+
 ### When Scrolling
 
 Position changes due to scrolling are already smooth, so don't need to be animated, so, if you have a scrollview, you probably want to put an `AnimoveFrame` around the child so that Animove'd descendents of the scrollview don't lag behind when you scroll. If it's a sliver list, you need to use an `AnimoveSliverFrame` instead. (*though, strangely, some websites, even modern ones, seem to leave this scroll-lagging effect in intentionally, for stylistic reasons, I guess it conveys a subtle visual distinction between the animoved and non-animoved content*).
@@ -21,3 +25,4 @@ Position changes due to scrolling are already smooth, so don't need to be animat
 - Handling resizing well. Which could be paraphrased as handling container alignment. If you have a right-aligned AnimoveFrame with a right aligned Animove child, and you downsize the AnimoveFrame, the child shouldn't move, as relative to the screen, or the frame above its frame, it hasn't moved. Currently, it will move, because relative to the left side of its nearest frame, it has moved, and the Animove doesn't know that it was right aligned or that the parent frame also moved to negate its movement. I think we can fix this? AnimoveFrame can, in theory, use its knowledge of its position relative to the parent AnimoveFrame to decide whether a resize should cause its items to animate or not, or, it should be able to adjust their start position.
 
     - (at this point, I believe it'll be a complete solution to layout animation)
+

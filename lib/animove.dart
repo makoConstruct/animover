@@ -286,6 +286,7 @@ class RenderAnimove extends RenderAnimoveFrame {
   Simulation? _simX;
   Simulation? _simY;
   Duration? _animationStart;
+  Duration? _lastTickElapsed;
 
   double _txX = 0.0;
   double _txY = 0.0;
@@ -381,7 +382,8 @@ class RenderAnimove extends RenderAnimoveFrame {
   void _startAnimation(double fromX, double fromY, double velX, double velY) {
     _simX = _simulationFactory(fromX, 0.0, velX);
     _simY = _simulationFactory(fromY, 0.0, velY);
-    _animationStart = null;
+    // we act as if the animation started one tick ago. This makes things one frame more responsive than they otherwise would be, it's also absolutely necessary in situations where the animation is being interrupted every frame by a traditional layout animation, without this, the animoves wouldn't be able to start to move until that layout animation ends.
+    _animationStart = _lastTickElapsed;
     _txX = fromX;
     _txY = fromY;
     _velX = velX;
@@ -403,6 +405,7 @@ class RenderAnimove extends RenderAnimoveFrame {
     _simX = null;
     _simY = null;
     _animationStart = null;
+    _lastTickElapsed = null;
     _txX = 0.0;
     _txY = 0.0;
     _velX = 0.0;
@@ -427,6 +430,7 @@ class RenderAnimove extends RenderAnimoveFrame {
     }
 
     _animationStart ??= elapsed;
+    _lastTickElapsed = elapsed;
     final double t = (elapsed - _animationStart!).inMicroseconds / 1e6;
 
     bool doneX = true;

@@ -12,9 +12,9 @@ As for disadvantages, I don't see any right now, I'm going to ask the author of 
 
 We also provide `AnisizedContainer`, which animates resize in a way that harmonizes well with our other animated movements. Likewise, it does it by only running layout once, then depicting the change in layout over time in the container's background. So you may notice that the content of the AnisizedContainer reflows instantly, and this may or may not look glitchy. The solution (and this was always the only general solution to reflow animation) is to put the subwidgets in AnisizedContainers and Animoves as well.
 
-The following is footage from Mako's Timer, which uses Animoves. This whole extra dynamic reflowing animation is implemented simply as ordinary Wrap containers with some animoves in them.
+The following is footage from Mako's Timer, which uses Animoves. This whole extra dynamic reflowing animation is implemented with ordinary Wrap containers, with Animoves and AnimoveFrames and AnisizedContainers in them. (*I don't know why it's a bit blurry, I think kdenlive might have done that*)
 
-
+https://github.com/user-attachments/assets/0d1252a7-0537-4d31-8014-77fa37aaa9b7
 
 ### When Scrolling
 

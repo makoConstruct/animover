@@ -382,8 +382,10 @@ class RenderAnimove extends RenderAnimoveFrame {
   void _startAnimation(double fromX, double fromY, double velX, double velY) {
     _simX = _simulationFactory(fromX, 0.0, velX);
     _simY = _simulationFactory(fromY, 0.0, velY);
-    // we act as if the animation started one tick ago. This makes things one frame more responsive than they otherwise would be, it's also absolutely necessary in situations where the animation is being interrupted every frame by a traditional layout animation, without this, the animoves wouldn't be able to start to move until that layout animation ends.
-    _animationStart = _lastTickElapsed;
+    // When the ticker is already running, anchor to the last tick time so the
+    // next onTick produces t > 0.  When starting fresh, null triggers lazy init
+    // in onTick (avoiding a stale _lastTickElapsed from a previous session).
+    _animationStart = _ticker.isTicking ? _lastTickElapsed : null;
     _txX = fromX;
     _txY = fromY;
     _velX = velX;

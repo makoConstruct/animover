@@ -53,6 +53,13 @@ class _SwapDemoState extends State<SwapDemo> {
     GlobalKey(debugLabel: 'group-1'),
   ];
 
+  // Keys for the "enter" section: a larger animove (N) that toggles between
+  // sitting beside a smaller animove (O) and being placed inside it, causing
+  // O's AnisizedContainer to grow to fit N.
+  final _enterOuterKey = GlobalKey(debugLabel: 'enter-outer');
+  final _enterInnerKey = GlobalKey(debugLabel: 'enter-inner');
+  bool _entered = false;
+
   final _scrollController = ScrollController();
   final _horizontalScrollController = ScrollController();
   final _nonSliverScrollController = ScrollController();
@@ -179,6 +186,68 @@ class _SwapDemoState extends State<SwapDemo> {
     );
   }
 
+  // Children for the "enter" test. When `_entered` is false, N sits beside O
+  // (which holds a small placeholder). When true, N is placed inside O and
+  // O's AnisizedContainer grows to fit it, while N's animove drives the
+  // reparent animation.
+  List<Widget> _enterSectionChildren() {
+    final n = createAnimove(
+      key: _enterOuterKey,
+      tag: 'enter-n',
+      child: Container(
+        width: 80,
+        height: 50,
+        decoration: BoxDecoration(
+          color: Colors.deepPurple,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        alignment: Alignment.center,
+        child: const Text(
+          'N',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+      ),
+    );
+
+    final o = createAnimove(
+      key: _enterInnerKey,
+      tag: 'enter-o',
+      child: AnisizedContainer(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.yellow.shade700,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        alignment: Alignment.center,
+        // Placeholder height matches N's height so O's total height (content
+        // + padding) stays constant whether N is inside or not; only the
+        // width changes when N enters.
+        child: _entered
+            ? n
+            : const SizedBox(
+                width: 20,
+                height: 50,
+                child: Center(
+                  child: Text(
+                    'O',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    );
+
+    return _entered ? [o] : [n, const SizedBox(width: 16), o];
+  }
+
   // Outer animove wrapping the two inner animoves for a nested group.
   // Group 0 → slots 7, 8.  Group 1 → slots 9, 10.
   Widget _nestedGroupWidget(int groupIdx) {
@@ -271,10 +340,16 @@ class _SwapDemoState extends State<SwapDemo> {
               ('H ↔ J (across groups)', () => _swap(7, 9)),
               ('Groups ↔', _swapNestedGroups),
             ]),
+            _buttonSection('Enter', [
+              (
+                'N → O (enter/exit)',
+                () => setState(() => _entered = !_entered),
+              ),
+            ]),
 
             const Divider(height: 1),
 
-            // --- Top row: A, Row(B, C) ---
+            // --- Top row: A, Row(B, C), enter test (N, O) ---
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
@@ -283,6 +358,11 @@ class _SwapDemoState extends State<SwapDemo> {
                   _item(0), // A
                   const SizedBox(width: 16),
                   Row(children: [_item(1), _item(2)]), // B, C
+                  const SizedBox(
+                    height: 66,
+                    child: VerticalDivider(width: 32),
+                  ),
+                  ..._enterSectionChildren(),
                 ],
               ),
             ),
